@@ -33,7 +33,7 @@ sub get_new_token {
 	if ($grant_type =~ /^refresh_token$/) {
 		$refresh = "&" . $grant_type . "=" . $code;
 	}
-	my $response = `curl --data "grant_type=$grant_type&code=$code&redirect_uri=http://ilankleiman.com/spotify/callback.pl&client_secret=$oauth_client_secret&client_id=$oauth_client_id$refresh" "https://accounts.spotify.com/api/token"`;
+	my $response = `curl --data "grant_type=$grant_type&code=$code&redirect_uri=http://138.197.50.244/spotify/callback.pl&client_secret=$oauth_client_secret&client_id=$oauth_client_id$refresh" "https://accounts.spotify.com/api/token"`;
 	my $token = decode_json($response)->{access_token};
 	my $refresh_token = decode_json($response)->{refresh_token};
 	my %tokens;
@@ -109,7 +109,8 @@ BEGIN {
 		path('token.txt')->chmod(0777);
 		path('r_token.txt')->spew($tokens{refresh_token});
 		path('r_token.txt')->chmod(0777);
-		print "GOT FRESH TOKEN: " . $tokens{token} . "</br>\n</br>\n";
+		#print "GOT FRESH TOKEN: " . $tokens{token} . "</br>\n</br>\n";
+		print "Got a fresh token.</br>\n";
 	}
 
 	my $token = path('token.txt')->slurp;

@@ -21,6 +21,12 @@ sub get_my_playlists {
 	return $response;
 }
 
+sub get_a_playlist {
+	my ($auth_bearer, $playlist_id, $my_id) = @_;
+	my $response = `curl -s -H "Authorization: Bearer $auth_bearer" https://api.spotify.com/v1/users/$my_id/playlists/$playlist_id`;
+	return $response;
+}
+
 sub get_new_token {
 	my ($code, $oauth_client_id, $oauth_client_secret, $grant_type) = @_;
 	my $refresh = "";
@@ -43,19 +49,48 @@ sub write_new_tokens {
 	path('token.txt')->chmod(0777);
 	path('r_token.txt')->spew($r_token);
 	path('r_token.txt')->chmod(0777);
-	return;
+	return 1;
+}
+
+sub print_a_playlist {
+	my ($auth_bearer, $playlist_id, $my_id) = @_;
+	my $data = decode_json(get_a_playlist($auth_bearer, $playlist_id, $my_id));
+	print "Playlist Name: " . $data->{name} . "</br>\n";
+	my @song_list = @{$data->{tracks}{items}};
+	print "Songs (x" . scalar(@song_list) . "): </br>\n";
+	foreach my $song (@song_list) {
+		print $song->{track}{name} . " by " . $song->{track}{album}{artists}[0]{name} . "</br>\n";
+	}
 }
 
 sub print_my_playlists {
 	my ($auth_bearer) = @_;
-	print get_my_playlists($auth_bearer);
+	my $data = decode_json(get_my_playlists($auth_bearer));
+	my @items = @{$data->{items}};
+
+	print "Found " . scalar(@items) . " playlists:</br>\n";
+	foreach my $item (@items) {
+		print "<p>&nbsp;&nbsp;Name: " . $item->{name} . "</p>\n";
+		print "<p>&nbsp;&nbsp;Songs: x" . $item->{tracks}{total} . "</p>\n";
+		print "<p>&nbsp;&nbsp;ID: " . $item->{id} . "</p>\n";
+		my $playlist_url = $item->{id};
+		print qq{
+			<form action='' method='get'>
+				<input type='hidden' name='method' value='print_a_playlist'/>
+				<input type='hidden' name='playlist' value='$playlist_url'/>
+				<input type='submit' value='Show Songs'/>
+			</form>
+		};
+		print "<hr>\n";
+	}
+
 }
 
 sub print_html_forms {
 	print my $html = qq{
 		<form action='' method='get'>
 			<input type='hidden' name='method' value='print_my_playlist'/>
-			<input type='submit' value='Print Playlists'/>
+			<input type='submit' value='Show Playlists'/>
 		</form>
 	};
 }
@@ -79,6 +114,7 @@ BEGIN {
 
 	my $token = path('token.txt')->slurp;
 	my $r_token = path('r_token.txt')->slurp;
+	my $id;
 	if (decode_json(get_me($token))->{error}) {
 		print "Invalid Token. Need to refresh.</br>\n";
 		print "Using R_TOKEN: " . $r_token . "</br>\n";
@@ -93,11 +129,15 @@ BEGIN {
 	else {
 		print "Token OK</br>\n";
 		print "Hello ";
-		print my $id = decode_json(get_me(path('token.txt')->slurp))->{id};
-		print "</br>\n";
+		print $id = decode_json(get_me(path('token.txt')->slurp))->{id};
+		print "</br>\n<hr/></br>\n";
 		if ($cgi->param('method') =~ /^print_my_playlist$/) {
 			print_my_playlists(path('token.txt')->slurp);
 		}
+	}
+
+	if ($cgi->param('method') =~ /^print_a_playlist$/) {
+		print_a_playlist(path('token.txt')->slurp, $cgi->param('playlist'), $id)
 	}
 
 	print_html_forms();

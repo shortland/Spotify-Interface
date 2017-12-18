@@ -22,8 +22,8 @@ sub get_my_playlists {
 }
 
 sub get_a_playlist {
-	my ($auth_bearer, $playlist_id, $my_id) = @_;
-	my $response = `curl -s -H "Authorization: Bearer $auth_bearer" https://api.spotify.com/v1/users/$my_id/playlists/$playlist_id`;
+	my ($auth_bearer, $playlist_id, $my_id, $offset) = @_;
+	my $response = `curl -s -H "Authorization: Bearer $auth_bearer" https://api.spotify.com/v1/users/$my_id/playlists/$playlist_id/tracks?offset=$offset`;
 	return $response;
 }
 
@@ -53,13 +53,15 @@ sub write_new_tokens {
 }
 
 sub print_a_playlist {
-	my ($auth_bearer, $playlist_id, $my_id) = @_;
-	my $data = decode_json(get_a_playlist($auth_bearer, $playlist_id, $my_id));
-	print "Playlist Name: " . $data->{name} . "</br>\n";
-	my @song_list = @{$data->{tracks}{items}};
-	print "Songs (x" . scalar(@song_list) . "): </br>\n";
+	my ($auth_bearer, $playlist_id, $my_id, $offset) = @_;
+	my $data = decode_json(get_a_playlist($auth_bearer, $playlist_id, $my_id, $offset));
+	my @song_list = @{$data->{items}};
 	foreach my $song (@song_list) {
 		print $song->{track}{name} . " by " . $song->{track}{album}{artists}[0]{name} . "</br>\n";
+	}
+	if (defined $data->{next}) {
+		$offset += 100;
+		print_a_playlist($auth_bearer, $playlist_id, $my_id, $offset);
 	}
 }
 
@@ -98,7 +100,7 @@ sub print_html_forms {
 BEGIN {
 	my $cgi = CGI->new;
 	print $cgi->header(-type => "text/html");
-	my $config = LoadFile('/var/www/html/spotify/.config.yaml');
+	my $config = LoadFile('.config.yaml');
 
 	my $oauth_client_id = $config->{oauth}{client_id};
 	my $oauth_client_secret = $config->{oauth}{client_secret};
@@ -109,7 +111,6 @@ BEGIN {
 		path('token.txt')->chmod(0777);
 		path('r_token.txt')->spew($tokens{refresh_token});
 		path('r_token.txt')->chmod(0777);
-		#print "GOT FRESH TOKEN: " . $tokens{token} . "</br>\n</br>\n";
 		print "Got a fresh token.</br>\n";
 	}
 
@@ -117,13 +118,13 @@ BEGIN {
 	my $r_token = path('r_token.txt')->slurp;
 	my $id;
 	if (decode_json(get_me($token))->{error}) {
-		print "Invalid Token. Need to refresh.</br>\n";
+		print "Invalid Token. Attempting to use 'refresh token'.</br>\n";
 		print "Using R_TOKEN: " . $r_token . "</br>\n";
 		print my %t = get_new_token($r_token, $oauth_client_id, $oauth_client_secret, 'refresh_token');
 		print $t{token} . "</br>\n";
-		print "Got new token.</br>\n";
+		print "Got a new token.</br>\n";
 		if (decode_json(get_me($t{token}))->{error}) {
-			print "ERROR: Recieved tokens are invalid.\nPlease visit NewCode.html to retrieve a fresh set of tokens.</br>\n";
+			print "ERROR: Token(s) are invalid/expired.\nPlease visit NewCode.html to retrieve a fresh set of tokens.</br>\n";
 			exit;
 		}
 	}
@@ -138,7 +139,7 @@ BEGIN {
 	}
 
 	if ($cgi->param('method') =~ /^print_a_playlist$/) {
-		print_a_playlist(path('token.txt')->slurp, $cgi->param('playlist'), $id)
+		print_a_playlist(path('token.txt')->slurp, $cgi->param('playlist'), $id, 0);
 	}
 
 	print_html_forms();

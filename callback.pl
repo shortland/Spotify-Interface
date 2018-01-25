@@ -3,10 +3,10 @@
 use strict;
 use warnings;
 use CGI;
+use CGI::Cookie;
 use CGI::Carp qw(fatalsToBrowser);
 use YAML::XS 'LoadFile';
 use JSON;
-use Path::Tiny;
 use MIME::Base64;
 
 sub get_me {
@@ -28,37 +28,30 @@ sub get_a_playlist {
 }
 
 sub get_new_token {
-	my ($code, $oauth_client_id, $oauth_client_secret, $grant_type) = @_;
+	my ($code, $oauth_client_id, $oauth_client_secret, $grant_type, $host, $path) = @_;
 	my $refresh = "";
+
 	if ($grant_type =~ /^refresh_token$/) {
 		$refresh = "&" . $grant_type . "=" . $code;
 	}
-	my $response = `curl --data "grant_type=$grant_type&code=$code&redirect_uri=http://138.197.50.244/spotify/callback.pl&client_secret=$oauth_client_secret&client_id=$oauth_client_id$refresh" "https://accounts.spotify.com/api/token"`;
+
+	my $response = `curl --data "grant_type=$grant_type&code=$code&redirect_uri=$host/$path/callback.pl&client_secret=$oauth_client_secret&client_id=$oauth_client_id$refresh" "https://accounts.spotify.com/api/token"`;
 	my $token = decode_json($response)->{access_token};
 	my $refresh_token = decode_json($response)->{refresh_token};
 	my %tokens;
-	$tokens{'token'} = $token // "error";
-	$tokens{'refresh_token'} = $refresh_token // "error_r";
-	write_new_tokens($tokens{'token'}, $tokens{'refresh_token'});
+	$tokens{'token'} = $token // "errorT";
 	return %tokens;
-}
-
-sub write_new_tokens {
-	my ($token, $r_token) = @_;
-	path('token.txt')->spew($token);
-	path('token.txt')->chmod(0777);
-	path('r_token.txt')->spew($r_token);
-	path('r_token.txt')->chmod(0777);
-	return 1;
 }
 
 sub print_a_playlist {
 	my ($auth_bearer, $playlist_id, $my_id, $offset) = @_;
 	my $data = decode_json(get_a_playlist($auth_bearer, $playlist_id, $my_id, $offset));
 	my @song_list = @{$data->{items}};
+
 	foreach my $song (@song_list) {
 		print $song->{track}{name} . " by " . $song->{track}{album}{artists}[0]{name} . "</br>\n";
 	}
+
 	if (defined $data->{next}) {
 		$offset += 100;
 		print_a_playlist($auth_bearer, $playlist_id, $my_id, $offset);
@@ -71,11 +64,13 @@ sub print_my_playlists {
 	my @items = @{$data->{items}};
 
 	print "Found " . scalar(@items) . " playlists:</br>\n";
+
 	foreach my $item (@items) {
 		print "<p>&nbsp;&nbsp;Name: " . $item->{name} . "</p>\n";
 		print "<p>&nbsp;&nbsp;Songs: x" . $item->{tracks}{total} . "</p>\n";
 		print "<p>&nbsp;&nbsp;ID: " . $item->{id} . "</p>\n";
 		my $playlist_url = $item->{id};
+
 		print qq{
 			<form action='' method='get'>
 				<input type='hidden' name='method' value='print_a_playlist'/>
@@ -99,49 +94,52 @@ sub print_html_forms {
 
 BEGIN {
 	my $cgi = CGI->new;
-	print $cgi->header(-type => "text/html");
-	my $config = LoadFile('.config.yaml');
+	my %cookies = fetch CGI::Cookie;
+	my $cookie_token = 'ne';
 
+	if ($cookies{'cookie_token'}) {
+		$cookie_token = $cookies{'cookie_token'}->value;
+	}
+	
+	my $config = LoadFile('.config.yaml');
 	my $oauth_client_id = $config->{oauth}{client_id};
 	my $oauth_client_secret = $config->{oauth}{client_secret};
+	my $host = $config->{server}{host};
+	my $path = $config->{server}{path};
+	my $token;
 
 	if ($cgi->param('code')) {
-		my %tokens = get_new_token($cgi->param('code'), $oauth_client_id, $oauth_client_secret, 'authorization_code');
-		path('token.txt')->spew($tokens{token});
-		path('token.txt')->chmod(0777);
-		path('r_token.txt')->spew($tokens{refresh_token});
-		path('r_token.txt')->chmod(0777);
-		print "Got a fresh token.</br>\n";
-	}
-
-	my $token = path('token.txt')->slurp;
-	my $r_token = path('r_token.txt')->slurp;
-	my $id;
-	if (decode_json(get_me($token))->{error}) {
-		print "Invalid Token. Attempting to use 'refresh token'.</br>\n";
-		print "Using R_TOKEN: " . $r_token . "</br>\n";
-		print my %t = get_new_token($r_token, $oauth_client_id, $oauth_client_secret, 'refresh_token');
-		print $t{token} . "</br>\n";
-		print "Got a new token.</br>\n";
-		if (decode_json(get_me($t{token}))->{error}) {
-			print "ERROR: Token(s) are invalid/expired.\nPlease visit NewCode.html to retrieve a fresh set of tokens.</br>\n";
-			exit;
-		}
+		my %tokens = get_new_token($cgi->param('code'), $oauth_client_id, $oauth_client_secret, 'authorization_code', $host, $path);
+		my $cookie_token = new CGI::Cookie(-name => 'cookie_token', -value => "$tokens{token}", -expires => '+3M');
+		print "Set-Cookie: $cookie_token\n";
+		print $cgi->header(-type => "text/html");
+		print "Got & set new Token.</br>\n";
+		$token = $tokens{token};
 	}
 	else {
-		print "Token OK</br>\n";
+		print $cgi->header(-type => "text/html");
+		$token = $cookie_token;
+	}
+
+	my $id;
+
+	if (decode_json(get_me($token))->{error}) {
+		print "Expired Token. Please visit <a href='NewCode.html'>NewCode.html</a> to retrieve a new Token.";
+	}
+	else {
 		print "Hello ";
-		print $id = decode_json(get_me(path('token.txt')->slurp))->{id};
+		print $id = decode_json(get_me($token))->{id};
 		print "</br>\n<hr/></br>\n";
 		if ($cgi->param('method') =~ /^print_my_playlist$/) {
-			print_my_playlists(path('token.txt')->slurp);
+			print_my_playlists($token);
 		}
 	}
 
 	if ($cgi->param('method') =~ /^print_a_playlist$/) {
-		print_a_playlist(path('token.txt')->slurp, $cgi->param('playlist'), $id, 0);
+		print_a_playlist($token, $cgi->param('playlist'), $id, 0);
 	}
 
-	print_html_forms();
-
+	if ($cgi->param('method') !~ /^print_my_playlist$/) {
+		print_html_forms();
+	}
 }

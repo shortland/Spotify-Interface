@@ -2,3 +2,6 @@
 oauth:
     client_id: xxx
     client_secret: xxx
+server:
+    host: http://138.197.50.244
+    path: spotify

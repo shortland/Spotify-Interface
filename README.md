@@ -1,6 +1,8 @@
 # Spotify-Interface
 Small interface for accessing some parts of Spotifys Web API. Mainly going to use this to get a playlists song list.
 
+<p><a href='http://138.197.50.244/spotify/callback.pl'>Public Demo</a></p>
+
 <h3>Steps:</h3>
 
 <p>1.) Download this repository onto your Server, so that it looks like http://<i></i>YourWebsiteHere.com/spotify/files</p>
